@@ -1,0 +1,48 @@
+services:
+  # FastAPI Backend Service
+  - type: web
+    name: enterprise-agent-api
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt && python scripts/ingest.py
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:///./enterprise_state.db
+      - key: CHROMA_PERSIST_DIR
+        value: ./vectorstore
+      - key: CHROMA_COLLECTION
+        value: enterprise_docs
+      - key: OLLAMA_URL
+        value: http://localhost:11434
+      - key: OLLAMA_MODEL
+        value: llama3.2:latest
+      - key: USE_HUGGINGFACE_FALLBACK
+        value: true
+      - key: HF_INFERENCE_TOKEN
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.9
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # Streamlit UI Service
+  - type: web
+    name: enterprise-agent-ui
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run ui/streamlit_app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: API_URL
+        fromService:
+          name: enterprise-agent-api
+          type: web
+          property: url
+      - key: PYTHON_VERSION
+        value: 3.11.9
+    autoDeploy: true

@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # Enterprise AI Agent Application
+  enterprise-agent:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - jwt_secret
+    container_name: enterprise-agent-app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./enterprise_state.db
+      - CHROMA_PERSIST_DIR=/app/vectorstore
+      - CHROMA_COLLECTION=enterprise_docs
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2:latest
+      - JWT_ISSUER=enterprise_gateway
+      - JWT_AUDIENCE=enterprise_clients
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+    volumes:
+      - ./enterprise_state.db:/app/enterprise_state.db
+      - ./vectorstore:/app/vectorstore
+    depends_on:
+      - ollama
+    networks:
+      - enterprise-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/health', timeout=4); exit(0 if r.status_code == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Local Ollama LLM Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: enterprise-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - enterprise-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Initialize with the model
+    command: >
+      sh -c "ollama serve & 
+             sleep 10 && 
+             ollama pull llama3.2:latest && 
+             wait"
+
+  # Streamlit UI (Alternative deployment)
+  streamlit-ui:
+    build: 
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: enterprise-ui
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://enterprise-agent:8000
+    depends_on:
+      - enterprise-agent
+    networks:
+      - enterprise-network
+    restart: unless-stopped
+    profiles:
+      - ui
+
+volumes:
+  ollama-data:
+    driver: local
+
+networks:
+  enterprise-network:
+    driver: bridge
+
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
