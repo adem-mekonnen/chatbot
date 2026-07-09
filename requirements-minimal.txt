@@ -1,0 +1,17 @@
+# Absolute minimal requirements for Streamlit Cloud
+# Use this if the main requirements.txt fails
+
+streamlit
+fastapi
+uvicorn
+SQLAlchemy
+aiosqlite
+PyJWT
+passlib
+bcrypt
+nh3
+httpx
+python-dotenv
+pydantic
+sentence-transformers
+chromadb
