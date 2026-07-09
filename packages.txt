@@ -1,0 +1,5 @@
+# System packages for Streamlit Cloud
+# These are installed via apt-get
+
+# Required for some dependencies
+build-essential

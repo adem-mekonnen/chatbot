@@ -1,0 +1,30 @@
+# Streamlit Cloud Optimized Requirements
+# This version uses looser version constraints for better compatibility
+
+# Core Web Framework
+streamlit
+fastapi
+uvicorn[standard]
+
+# Database
+SQLAlchemy
+aiosqlite
+
+# Authentication & Security
+PyJWT
+passlib[bcrypt]
+bcrypt
+nh3
+
+# AI/ML & LLM (streamlined for cloud)
+langchain-core
+langchain-community
+langchain-huggingface
+sentence-transformers
+chromadb
+
+# HTTP & Utilities
+httpx
+python-dotenv
+pydantic
+nest-asyncio
