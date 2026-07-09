@@ -1,4 +1,4 @@
-# Core Framework
+# Core Web
 streamlit
 fastapi
 uvicorn
@@ -7,18 +7,21 @@ uvicorn
 SQLAlchemy
 aiosqlite
 
-# Authentication & Security
+# Security
 PyJWT
 passlib
 bcrypt
 nh3
 
-# AI/ML (minimal versions)
-langchain-core
+# LangChain & RAG (required for knowledge base)
 langchain-community
 langchain-huggingface
-sentence-transformers
+langchain-text-splitters
+langchain-chroma
+
+# Vector Store & Embeddings
 chromadb
+sentence-transformers
 
 # HTTP & Utilities
 httpx

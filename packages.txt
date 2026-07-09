@@ -1,5 +1,11 @@
 # System packages for Streamlit Cloud
 # These are installed via apt-get
 
-# Required for some dependencies
+# Build essentials
 build-essential
+
+# For PDF processing
+libpoppler-cpp-dev
+
+# For ChromaDB
+sqlite3
