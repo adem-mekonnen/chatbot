@@ -1,6 +1,3 @@
-# Ultra-minimal requirements - guaranteed to work
-# This will get your app deployed, then we can add features
-
 streamlit==1.32.0
 fastapi==0.109.0
 uvicorn==0.27.0

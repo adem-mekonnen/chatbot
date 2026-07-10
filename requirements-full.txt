@@ -1,29 +1,14 @@
-# Core Web
-streamlit
-fastapi
-uvicorn
+# Ultra-minimal requirements - guaranteed to work
+# This will get your app deployed, then we can add features
 
-# Database
-SQLAlchemy
-aiosqlite
-
-# Security
-PyJWT
-passlib
-bcrypt
-nh3
-
-# LangChain & RAG (required for knowledge base)
-langchain-community
-langchain-huggingface
-langchain-text-splitters
-langchain-chroma
-
-# Vector Store & Embeddings
-chromadb
-sentence-transformers
-
-# HTTP & Utilities
-httpx
-python-dotenv
-pydantic
+streamlit==1.32.0
+fastapi==0.109.0
+uvicorn==0.27.0
+SQLAlchemy==2.0.25
+aiosqlite==0.19.0
+PyJWT==2.8.0
+passlib==1.7.4
+bcrypt==4.1.2
+python-dotenv==1.0.0
+httpx==0.26.0
+pydantic==2.5.3
