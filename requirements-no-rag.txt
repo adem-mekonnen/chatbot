@@ -1,0 +1,18 @@
+# Minimal requirements WITHOUT RAG/Knowledge base
+# Use this if langchain packages are causing issues
+# Note: Policy questions won't work without RAG
+
+streamlit
+fastapi
+uvicorn
+SQLAlchemy
+aiosqlite
+PyJWT
+passlib
+bcrypt
+nh3
+httpx
+python-dotenv
+pydantic
+transformers
+torch
