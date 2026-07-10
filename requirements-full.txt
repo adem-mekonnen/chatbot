@@ -1,0 +1,29 @@
+# Core Web
+streamlit
+fastapi
+uvicorn
+
+# Database
+SQLAlchemy
+aiosqlite
+
+# Security
+PyJWT
+passlib
+bcrypt
+nh3
+
+# LangChain & RAG (required for knowledge base)
+langchain-community
+langchain-huggingface
+langchain-text-splitters
+langchain-chroma
+
+# Vector Store & Embeddings
+chromadb
+sentence-transformers
+
+# HTTP & Utilities
+httpx
+python-dotenv
+pydantic
