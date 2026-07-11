@@ -1,11 +1,13 @@
-# System packages for Streamlit Cloud
-# These are installed via apt-get
+# System packages for Streamlit Cloud - ALL DISABLED
+# These were causing deployment failures!
+# Re-enable only when needed
 
-# Build essentials
-build-essential
+# # Build essentials
+# build-essential
 
-# For PDF processing
-libpoppler-cpp-dev
+# # For PDF processing
+# libpoppler-cpp-dev
 
-# For ChromaDB
-sqlite3
+# # For ChromaDB
+# sqlite3
+
