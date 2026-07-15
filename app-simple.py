@@ -66,6 +66,10 @@ DEMO_USERS = {
 
 def authenticate(username, password):
     """Simple authentication"""
+    # Strip whitespace from inputs
+    username = username.strip() if username else ""
+    password = password.strip() if password else ""
+    
     user = DEMO_USERS.get(username)
     if user and user["password"] == password:
         return True, user["role"]
@@ -123,6 +127,10 @@ if not st.session_state.authenticated:
             
             if submit:
                 if username and password:
+                    # Strip whitespace
+                    username = username.strip()
+                    password = password.strip()
+                    
                     authenticated, role = authenticate(username, password)
                     if authenticated:
                         st.session_state.authenticated = True
@@ -132,6 +140,7 @@ if not st.session_state.authenticated:
                         st.rerun()
                     else:
                         st.error("❌ Invalid credentials")
+                        st.info(f"💡 Tip: Make sure you're typing exactly: username='{username}' (Check for typos!)")
                 else:
                     st.warning("⚠️ Please enter both username and password")
         
