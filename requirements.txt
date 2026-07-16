@@ -12,10 +12,12 @@ PyJWT==2.8.0
 passlib[bcrypt]==1.7.4
 python-dotenv==1.0.0
 
-# AI & Search (Crucial to fix the error)
+# AI & Search (Fixed dependencies)
 sentence-transformers==2.5.1
 langchain==0.1.12
 langchain-community==0.0.28
+langchain-huggingface
 chromadb==0.4.24
 httpx==0.26.0
 nh3==0.2.15
+pypdf
