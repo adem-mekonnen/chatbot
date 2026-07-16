@@ -72,8 +72,8 @@ git push -u origin main
 - In the **Secrets** text box, paste this (replace the values):
 
 ```toml
-JWT_SECRET_KEY = "your-very-long-random-secret-key-at-least-32-characters-long-and-secure"
-HF_INFERENCE_TOKEN = "paste-your-huggingface-token-here"
+JWT_SECRET_KEY = "test"
+HF_INFERENCE_TOKEN = ""
 DATABASE_URL = "sqlite+aiosqlite:///./enterprise_state.db"
 CHROMA_PERSIST_DIR = "./vectorstore"
 CHROMA_COLLECTION = "enterprise_docs"
