@@ -1,11 +1,11 @@
-# --- Web & UI (Stable versions) ---
+# --- Web & UI ---
 streamlit==1.32.0
 fastapi==0.109.0
 uvicorn==0.27.0
 pydantic==2.5.3
 python-multipart==0.0.9
 
-# --- Database & Security (Stable versions) ---
+# --- Database & Security ---
 SQLAlchemy==2.0.25
 aiosqlite==0.19.0
 PyJWT==2.8.0
@@ -14,10 +14,11 @@ python-dotenv==1.0.0
 nh3==0.2.15
 httpx==0.26.0
 
-# --- AI & Search (Loosened to avoid version conflicts) ---
+# --- AI & Search (Added missing wrapper) ---
 langchain
 langchain-community
 langchain-huggingface
+langchain-chroma
 sentence-transformers
 chromadb
 pypdf
