@@ -5,12 +5,13 @@ uvicorn==0.27.0
 pydantic==2.5.3
 python-multipart==0.0.9
 
-# --- Database & Security (Fixed for Supabase) ---
+# --- Database & Security (FORCED COMPATIBILITY FIX) ---
 SQLAlchemy==2.0.25
 asyncpg==0.29.0
 aiosqlite==0.19.0
 PyJWT==2.8.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 python-dotenv==1.0.0
 nh3==0.2.15
 httpx==0.26.0
