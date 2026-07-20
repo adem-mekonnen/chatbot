@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Optional  # kept for any future optional fields in ORM models
+from typing import Optional
 from sqlalchemy import Column, String, Integer, DateTime, Numeric, JSON, Boolean, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
@@ -14,30 +14,26 @@ logger = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Use settings.database_url directly — it reads DATABASE_URL from the environment.
-# Tests set DATABASE_URL=sqlite+aiosqlite:///:memory: before importing this module,
-# so no sys.modules heuristic is needed (and that heuristic silently ignored the
-# env var anyway).
+# Use settings.database_url directly
 db_url = settings.database_url
 
 # ---------------------------------------------------------------------------
-# Enhanced Engine Configuration with Connection Pooling
+# Enhanced Engine Configuration with SSL fix for Supabase
 # ---------------------------------------------------------------------------
 
-# SQLite requires check_same_thread=False when used with async drivers so that
-# aiosqlite can hand the connection between threads during await points.
-_connect_args = {"check_same_thread": False} if db_url.startswith("sqlite") else {}
-
-# Enhanced connection pooling for better performance
 if db_url.startswith("sqlite"):
-    # SQLite doesn't support connection pooling with aiosqlite
+    # SQLite logic
+    _connect_args = {"check_same_thread": False}
     _pool_kwargs = {}
 else:
+    # POSTGRES (SUPABASE) LOGIC
+    # asyncpg requires SSL passed as a dictionary, not in the URL string
+    _connect_args = {"ssl": True} 
     _pool_kwargs = {
-        "pool_size": 25,
-        "max_overflow": 50,
-        "pool_recycle": 300,  # 5 minutes
-        "pool_timeout": 30,   # 30 seconds
+        "pool_size": 20,      # Slightly lower for Supabase Free Tier stability
+        "max_overflow": 10,
+        "pool_recycle": 300,
+        "pool_timeout": 30,
     }
 
 engine = create_async_engine(
@@ -50,7 +46,6 @@ engine = create_async_engine(
 
 # Pre-warm connection pool on startup
 async def warm_connection_pool():
-    """Pre-warm the connection pool to reduce initial request latency"""
     try:
         async with engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
@@ -73,7 +68,6 @@ Base = declarative_base()
 # ---------------------------------------------------------------------------
 
 class UserEntity(Base):
-    """Stores persistent credential hashes to eliminate run-time hash regeneration overhead."""
     __tablename__ = "users"
     user_id = Column(String, primary_key=True, index=True)
     password_hash = Column(String, nullable=False)
@@ -81,7 +75,6 @@ class UserEntity(Base):
 
 
 class AccountEntity(Base):
-    """Secure balance ledger table."""
     __tablename__ = "accounts"
     account_id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False)
@@ -95,7 +88,6 @@ class ChatHistory(Base):
     session_id = Column(String, index=True, nullable=False)
     role = Column(String, nullable=False)
     content = Column(String, nullable=False)
-    # timezone-aware UTC timestamp (datetime.utcnow is deprecated in Python 3.12+)
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -112,42 +104,27 @@ class AuditLog(Base):
 
 
 class RefreshTokenEntity(Base):
-    """Stores valid refresh token signatures to support revocation and prevent replay attacks."""
     __tablename__ = "refresh_tokens"
     token_id = Column(String, primary_key=True, index=True)
     user_id = Column(String, index=True, nullable=False)
     is_revoked = Column(Boolean, default=False, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
 
-
 # ---------------------------------------------------------------------------
-# SQLite write-lock
+# SQLite write-lock logic
 # ---------------------------------------------------------------------------
-# Created eagerly at module level so there is no race window between two
-# coroutines both seeing None and creating separate lock instances.
-# asyncio.Lock() is safe to create at import time in Python 3.10+.
 _sqlite_write_lock: asyncio.Lock = asyncio.Lock()
-
 
 @asynccontextmanager
 async def db_write_lock():
-    """Context manager that serialises SQLite writes with an asyncio lock.
-    For PostgreSQL and other servers, the context is a no-op."""
     if db_url.startswith("sqlite"):
         async with _sqlite_write_lock:
             yield
     else:
         yield
 
-
-# ---------------------------------------------------------------------------
-# Session helper
-# ---------------------------------------------------------------------------
-
 @asynccontextmanager
 async def get_async_db_session():
-    """Yields a context-managed async database session.
-    Rolls back automatically on any unhandled exception before closing."""
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -157,37 +134,11 @@ async def get_async_db_session():
         finally:
             await session.close()
 
-
-# ---------------------------------------------------------------------------
-# Schema initialisation  (schema only — no seed data)
-# ---------------------------------------------------------------------------
-
 async def init_db() -> None:
-    """Creates all ORM-mapped tables if they do not already exist.
-
-    This function is intentionally limited to DDL.  Demo/seed data lives in
-    seed_demo_data() and must be called explicitly from a one-off script or
-    a controlled migration step — never from application startup in production.
-    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-
-# ---------------------------------------------------------------------------
-# Demo seed  (DEV / CI only — never call from production startup)
-# ---------------------------------------------------------------------------
-
 async def seed_demo_data() -> None:
-    """Inserts a minimal set of demo users and accounts for local development
-    and CI tests.
-
-    Passwords are read from environment variables so that even dev credentials
-    are not hardcoded in source.  Falls back to obvious placeholder values that
-    are intentionally weak and clearly dev-only.
-
-    WARNING: Do NOT call this function from production startup code.
-    Use Alembic data migrations for production seed data.
-    """
     import os
     from sqlalchemy import select
 
@@ -201,10 +152,7 @@ async def seed_demo_data() -> None:
             logger.info("seed_demo_data: users table is not empty — skipping seed.")
             return
 
-        logger.warning(
-            "seed_demo_data: seeding demo users and accounts. "
-            "This should only run in development or CI environments."
-        )
+        logger.warning("seed_demo_data: seeding demo users and accounts.")
         session.add_all([
             UserEntity(user_id="1001", password_hash=pwd_context.hash(user_pw_1001), role="customer"),
             UserEntity(user_id="1002", password_hash=pwd_context.hash(user_pw_1002), role="customer"),
