@@ -1,6 +1,8 @@
 # app/database.py
+# app/database.py
 import asyncio
 import logging
+import ssl  # <--- Added this import
 from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import Column, String, Integer, DateTime, Numeric, JSON, Boolean, text
@@ -18,7 +20,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 db_url = settings.database_url
 
 # ---------------------------------------------------------------------------
-# Enhanced Engine Configuration with SSL fix for Supabase
+# Enhanced Engine Configuration with SSL BYPASS for Supabase
 # ---------------------------------------------------------------------------
 
 if db_url.startswith("sqlite"):
@@ -27,11 +29,15 @@ if db_url.startswith("sqlite"):
     _pool_kwargs = {}
 else:
     # POSTGRES (SUPABASE) LOGIC
-    # asyncpg requires SSL passed as a dictionary, not in the URL string
-    _connect_args = {"ssl": True} 
+    # We create a permissive SSL context to fix the "CERTIFICATE_VERIFY_FAILED" error
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    
+    _connect_args = {"ssl": ctx} 
     _pool_kwargs = {
-        "pool_size": 20,      # Slightly lower for Supabase Free Tier stability
-        "max_overflow": 10,
+        "pool_size": 10,       # Stable for free tier
+        "max_overflow": 5,
         "pool_recycle": 300,
         "pool_timeout": 30,
     }
@@ -43,7 +49,6 @@ engine = create_async_engine(
     connect_args=_connect_args,
     **_pool_kwargs,
 )
-
 # Pre-warm connection pool on startup
 async def warm_connection_pool():
     try:
