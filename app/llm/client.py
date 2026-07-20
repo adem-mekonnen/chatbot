@@ -2,6 +2,7 @@ import json
 import asyncio
 import httpx
 import time
+import os
 from typing import AsyncGenerator, Optional
 from app.config import settings
 from app.logger import structured_logger
@@ -24,7 +25,7 @@ class CircuitBreaker:
                 self.state = "HALF_OPEN"
                 return True
             return False
-        else:  # HALF_OPEN
+        else:
             return True
     
     def record_success(self):
@@ -42,211 +43,138 @@ class PluggableLLMClient:
         self.max_http_retries = 3
         self.base_backoff_sec = 1.0
         self.ollama_circuit_breaker = CircuitBreaker(failure_threshold=3, timeout=30)
-        self._health_check_interval = 60  # seconds
+        self._health_check_interval = 60
         self._last_health_check = 0
         self._ollama_healthy = True
 
+    async def _get_headers(self) -> dict:
+        """Helper to get auth headers if using Groq/Cloud providers"""
+        headers = {"Content-Type": "application/json"}
+        # If we are using Groq, add the API key
+        groq_key = os.getenv("GROQ_API_KEY")
+        if "groq" in settings.ollama_url.lower() and groq_key:
+            headers["Authorization"] = f"Bearer {groq_key}"
+        return headers
+
     async def _check_ollama_health(self) -> bool:
-        """Check if Ollama service is available"""
+        """Check if LLM service is available"""
         try:
+            # If using Groq, health check is just a small token test
+            if "groq" in settings.ollama_url.lower():
+                return True 
+            
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(f"{settings.ollama_url}/api/tags")
                 return response.status_code == 200
         except Exception:
             return False
-    
-    async def _get_ollama_health_status(self) -> bool:
-        """Get cached health status, refresh if needed"""
-        now = time.time()
-        if now - self._last_health_check > self._health_check_interval:
-            self._ollama_healthy = await self._check_ollama_health()
-            self._last_health_check = now
-            structured_logger.info(f"Ollama health check: {'healthy' if self._ollama_healthy else 'unhealthy'}")
-        return self._ollama_healthy
-
-    async def _try_huggingface_fallback(self, prompt: str, system_context: str) -> str:
-        """Fallback to HuggingFace API when Ollama is unavailable"""
-        if not settings.hf_token:
-            structured_logger.warning("No HuggingFace token available for fallback")
-            return (
-                "I apologize, but the AI service is temporarily unavailable. "
-                "Please try again in a few moments or contact IT support."
-            )
-        
-        try:
-            headers = {"Authorization": f"Bearer {settings.hf_token}"}
-            payload_hf = {
-                "inputs": f"<|system|>\n{system_context}</s>\n<|user|>\n{prompt}</s>\n<|assistant|>",
-                "parameters": {"temperature": 0.1, "max_new_tokens": 150}
-            }
-            
-            metrics_collector.increment("llm_fallback_attempts")
-            
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                res = await client.post(
-                    "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta",
-                    json=payload_hf,
-                    headers=headers
-                )
-                if res.status_code == 200:
-                    output = res.json()
-                    if isinstance(output, list) and len(output) > 0:
-                        gen_text = output[0].get("generated_text", "")
-                        if "<|assistant|>" in gen_text:
-                            result = gen_text.split("<|assistant|>")[-1].strip()
-                        else:
-                            result = gen_text.strip()
-                        
-                        metrics_collector.increment("llm_fallback_successes")
-                        structured_logger.info("HuggingFace fallback successful")
-                        return result
-                else:
-                    structured_logger.error(f"HuggingFace API failed: {res.status_code}")
-                    metrics_collector.increment("llm_fallback_failures")
-        except Exception as e:
-            structured_logger.error(f"HuggingFace fallback failed: {str(e)}")
-            metrics_collector.increment("llm_fallback_failures")
-
-        return (
-            "I apologize, but I'm experiencing technical difficulties connecting to the AI service. "
-            "Please try your question again in a few moments, or contact IT support if the issue persists. "
-            f"(Error ID: {int(time.time())})"
-        )
 
     async def generate(self, prompt: str, system_context: str = "You are an assistant.") -> str:
         """
-        Generates text using local Ollama endpoints with circuit breaker and health checks.
-        Falls back to HuggingFace if Ollama is unavailable.
+        Generates text using Groq (Cloud) or Ollama (Local).
+        Automatically switches API format based on the URL.
         """
-        start_time = time.time()
-        
-        # Check circuit breaker and health status first
         if not self.ollama_circuit_breaker.can_proceed():
-            structured_logger.warning("Ollama circuit breaker is OPEN, using HuggingFace fallback")
-            return await self._try_huggingface_fallback(prompt, system_context)
+            return "AI Service temporarily paused due to frequent errors. Please try again in 1 minute."
+
+        # Detect if we are using OpenAI/Groq format or Ollama format
+        is_cloud_provider = any(x in settings.ollama_url.lower() for x in ["groq", "openai"])
         
-        # Quick health check if we haven't done one recently
-        if not await self._get_ollama_health_status():
-            structured_logger.warning("Ollama health check failed, using HuggingFace fallback")
-            return await self._try_huggingface_fallback(prompt, system_context)
+        # 1. Prepare Payload
+        if is_cloud_provider:
+            # OpenAI / Groq Format
+            endpoint = f"{settings.ollama_url}/chat/completions"
+            payload = {
+                "model": settings.ollama_model,
+                "messages": [
+                    {"role": "system", "content": system_context},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.1
+            }
+        else:
+            # Local Ollama Format
+            endpoint = f"{settings.ollama_url}/api/generate"
+            payload = {
+                "model": settings.ollama_model,
+                "prompt": f"{system_context}\n\nUser: {prompt}",
+                "stream": False,
+                "options": {"temperature": 0.0}
+            }
 
-        payload = {
-            "model": settings.ollama_model,
-            "prompt": f"{system_context}\n\nUser Question:\n{prompt}",
-            "stream": False,
-            "options": {"temperature": 0.0, "num_ctx": 2048}  # Limit context window for faster processing
-        }
-
+        # 2. Execute Request
         for attempt in range(self.max_http_retries):
             try:
-                # Reduced timeout to 20 seconds for faster failure detection
-                async with httpx.AsyncClient(timeout=20.0) as client:
+                headers = await self._get_headers()
+                async with httpx.AsyncClient(timeout=30.0) as client:
                     metrics_collector.increment("llm_calls_total")
-                    structured_logger.debug(f"LLM request attempt {attempt+1}: {settings.ollama_url}")
+                    res = await client.post(endpoint, json=payload, headers=headers)
                     
-                    res = await client.post(f"{settings.ollama_url}/api/generate", json=payload)
-                    
-                    # Retry on rate limits (429) or transient server errors (500, 502, 503, 504)
-                    if res.status_code in [429, 500, 502, 503, 504]:
-                        structured_logger.warning(f"LLM server error {res.status_code}, retrying...")
-                        raise httpx.HTTPStatusError(
-                            message=f"Transient server error: {res.status_code}",
-                            request=res.request,
-                            response=res
-                        )
-                        
                     if res.status_code == 200:
-                        response_text = res.json().get("response", "").strip()
-                        structured_logger.debug(f"LLM response length: {len(response_text)} characters")
-                        
-                        # Record success for circuit breaker
+                        data = res.json()
                         self.ollama_circuit_breaker.record_success()
                         
-                        # Log performance metrics
-                        elapsed = time.time() - start_time
-                        metrics_collector.histogram("llm_request_duration", elapsed)
-                        structured_logger.info(f"LLM request completed in {elapsed:.2f}s")
-                        
-                        return response_text
-                        
+                        # Extract text based on provider
+                        if is_cloud_provider:
+                            return data["choices"][0]["message"]["content"].strip()
+                        else:
+                            return data.get("response", "").strip()
                     else:
-                        structured_logger.error(f"LLM request failed with status {res.status_code}: {res.text}")
-                        
-            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
-                structured_logger.warning(f"LLM connection error on attempt {attempt+1}: {str(e)}")
-                
-                # Record failure for circuit breaker
-                self.ollama_circuit_breaker.record_failure()
-                
+                        structured_logger.error(f"LLM API Error {res.status_code}: {res.text}")
+                        self.ollama_circuit_breaker.record_failure()
+            
+            except Exception as e:
+                structured_logger.warning(f"LLM Connection Attempt {attempt+1} failed: {e}")
                 if attempt == self.max_http_retries - 1:
-                    structured_logger.error("All LLM connection attempts failed, trying HuggingFace fallback")
-                    # Log failure metrics
-                    elapsed = time.time() - start_time
-                    metrics_collector.histogram("llm_request_failure_duration", elapsed)
-                    metrics_collector.increment("llm_ollama_failures")
-                    
-                    # Try HuggingFace fallback if available
-                    return await self._try_huggingface_fallback(prompt, system_context)
-                else:
-                    backoff = self.base_backoff_sec * (2 ** attempt)
-                    structured_logger.debug(f"Backing off for {backoff} seconds")
-                    await asyncio.sleep(backoff)
-
-        # This should never be reached due to the fallback above
-        return "Error: Unable to generate response after all retry attempts."
+                    self.ollama_circuit_breaker.record_failure()
+                    return "I'm sorry, I'm having trouble connecting to my brain right now. Please try again."
+                await asyncio.sleep(self.base_backoff_sec * (2 ** attempt))
 
     async def generate_stream(self, prompt: str, system_context: str = "You are an assistant.") -> AsyncGenerator[str, None]:
-        """Provides raw async token generation streaming for the portal interface."""
+        """Provides async token generation for the UI."""
+        is_cloud_provider = "groq" in settings.ollama_url.lower()
+        endpoint = f"{settings.ollama_url}/chat/completions" if is_cloud_provider else f"{settings.ollama_url}/api/generate"
         
-        # Check circuit breaker before attempting streaming
-        if not self.ollama_circuit_breaker.can_proceed():
-            structured_logger.warning("Ollama circuit breaker is OPEN, streaming not available")
-            yield "I apologize, but the streaming service is temporarily unavailable. Please try a regular chat message."
-            return
-        
-        # Quick health check
-        if not await self._get_ollama_health_status():
-            structured_logger.warning("Ollama health check failed, streaming not available")
-            yield "I apologize, but the streaming service is temporarily unavailable. Please try a regular chat message."
-            return
-            
-        payload = {
-            "model": settings.ollama_model,
-            "prompt": f"{system_context}\n\nUser Question:\n{prompt}",
-            "stream": True,
-            "options": {"temperature": 0.0, "num_ctx": 2048}  # Limit context for performance
-        }
-        
-        for attempt in range(self.max_http_retries):
-            try:
-                # Reduced timeout to 25 seconds for streaming
-                async with httpx.AsyncClient(timeout=25.0) as client:
-                    structured_logger.debug(f"LLM stream attempt {attempt+1}: {settings.ollama_url}")
-                    
-                    async with client.stream("POST", f"{settings.ollama_url}/api/generate", json=payload) as response:
-                        if response.status_code == 200:
-                            self.ollama_circuit_breaker.record_success()
-                            async for chunk in response.aiter_text():
-                                if not chunk.strip():
-                                    continue
+        # Prepare streaming payload
+        if is_cloud_provider:
+            payload = {
+                "model": settings.ollama_model,
+                "messages": [{"role": "system", "content": system_context}, {"role": "user", "content": prompt}],
+                "stream": True
+            }
+        else:
+            payload = {
+                "model": settings.ollama_model,
+                "prompt": f"{system_context}\n\nUser: {prompt}",
+                "stream": True
+            }
+
+        headers = await self._get_headers()
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                async with client.stream("POST", endpoint, json=payload, headers=headers) as response:
+                    if response.status_code != 200:
+                        yield "Connection Error. Please try again."
+                        return
+
+                    async for line in response.aiter_lines():
+                        if not line: continue
+                        
+                        if is_cloud_provider:
+                            # Parse Server-Sent Events (SSE) for Groq/OpenAI
+                            if line.startswith("data: "):
+                                data_str = line[6:]
+                                if data_str == "[DONE]": break
                                 try:
-                                    data = json.loads(chunk)
-                                    token = data.get("response", "")
-                                    if token:
-                                        yield token
-                                except json.JSONDecodeError:
-                                    continue
-                            return  # Stream completed successfully
+                                    chunk = json.loads(data_str)
+                                    token = chunk["choices"][0]["delta"].get("content", "")
+                                    if token: yield token
+                                except: continue
                         else:
-                            structured_logger.warning(f"Stream failed with status {response.status_code}")
-                            
-            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
-                structured_logger.warning(f"Stream connection error on attempt {attempt+1}: {str(e)}")
-                self.ollama_circuit_breaker.record_failure()
-                
-                if attempt < self.max_http_retries - 1:
-                    backoff = self.base_backoff_sec * (2 ** attempt)
-                    structured_logger.debug(f"Stream backing off for {backoff} seconds")
-                    await asyncio.sleep(backoff)
-                else:
-                    yield "Error: Unable to establish streaming connection. Please try a regular chat message."
+                            # Parse raw JSON lines for Ollama
+                            try:
+                                chunk = json.loads(line)
+                                yield chunk.get("response", "")
+                            except: continue
+        except Exception as e:
+            yield f"Stream interrupted: {e}"
