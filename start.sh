@@ -4,7 +4,7 @@
 python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
 
 # 2. Wait 5 seconds for the database connection and API to warm up
-sleep 5
+sleep 15
 
 # 3. Start the Streamlit frontend in the foreground on Render's $PORT
 # This is the process Render monitors to mark the service as 'Live'
