@@ -4,9 +4,9 @@ fastapi==0.109.0
 uvicorn==0.27.0
 pydantic==2.5.3
 python-multipart==0.0.9
-requests  # <--- CRITICAL: Needed for UI to talk to API
+requests
 
-# --- Database & Security (FORCED COMPATIBILITY FIX) ---
+# --- Database & Security (Forced Compatibility & Supabase) ---
 SQLAlchemy==2.0.25
 asyncpg==0.29.0
 aiosqlite==0.19.0
@@ -17,11 +17,11 @@ python-dotenv==1.0.0
 nh3==0.2.15
 httpx==0.26.0
 
-# --- AI & Search (Full RAG Support) ---
+# --- AI & Search (Cloud-Optimized RAG) ---
+# We removed sentence-transformers to save 400MB of RAM
 langchain
 langchain-community
 langchain-huggingface
 langchain-chroma
-sentence-transformers
-chromadb
+chromadb==0.4.24
 pypdf
