@@ -1,221 +1,126 @@
-"""
-Simplified Streamlit app for deployment testing
-This version works without RAG/ML dependencies
-"""
 import streamlit as st
+import requests
+import uuid
 import os
-import sys
-import logging
+import time
 
-# Set environment variables before imports
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./enterprise_state.db")
-os.environ.setdefault("USE_HUGGINGFACE_FALLBACK", "true")
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("enterprise-agent-simple")
+# --- 1. CONFIGURATION ---
+# In Render/Docker, the UI and API talk to each other on localhost:8000
+BACKEND_URL = "http://localhost:8000"
 
 st.set_page_config(
     page_title="Enterprise AI Agent",
     page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="centered"
 )
 
-# Custom CSS
+# Custom CSS for a professional enterprise look
 st.markdown("""
 <style>
-    .main {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-    }
-    .stTextInput > div > div > input {
-        background-color: #2d3748;
-        color: white;
-        border-radius: 10px;
-    }
-    .stButton > button {
-        width: 100%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 10px;
-        padding: 0.75rem;
-        font-weight: bold;
-    }
+    .stChatMessage { border-radius: 15px; margin-bottom: 10px; border: 1px solid #e0e0e0; }
+    .stButton > button { border-radius: 8px; font-weight: 600; }
+    .main { background-color: #f8f9fa; }
 </style>
 """, unsafe_allow_html=True)
 
-# Title
-st.title("🤖 Enterprise AI Agent")
-st.markdown("### Secure Authentication & Chat System")
-
-# Initialize session state
+# --- 2. SESSION INITIALIZATION ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
-if "username" not in st.session_state:
-    st.session_state.username = None
+if "token" not in st.session_state:
+    st.session_state.token = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "session_id" not in st.session_state:
+    st.session_state.session_id = f"sess_{uuid.uuid4().hex[:8]}"
 
-# Demo users (hardcoded for simple deployment)
-DEMO_USERS = {
-    "alice": {"password": "alice123", "role": "customer", "balance": 12345.67},
-    "bob": {"password": "bob123", "role": "customer", "balance": 9876.54},
-    "admin": {"password": "admin123", "role": "admin", "balance": 25000.00}
-}
-
-def authenticate(username, password):
-    """Simple authentication"""
-    user = DEMO_USERS.get(username)
-    if user and user["password"] == password:
-        return True, user["role"]
-    return False, None
-
-def get_balance(username):
-    """Get user balance"""
-    return DEMO_USERS.get(username, {}).get("balance", 0)
-
-def simple_chat_response(message, username, role):
-    """Simple chat response without LLM"""
-    message_lower = message.lower()
-    
-    # Balance queries
-    if "balance" in message_lower:
-        if role == "admin" and any(user in message_lower for user in ["alice", "bob"]):
-            # Admin cross-user query
-            for user in ["alice", "bob"]:
-                if user in message_lower:
-                    balance = get_balance(user)
-                    return f"✅ Admin Access: {user.capitalize()}'s account balance is ${balance:,.2f}"
-        else:
-            # Own balance
-            balance = get_balance(username)
-            return f"Your account balance is ${balance:,.2f}"
-    
-    # Policy questions (mock responses)
-    elif "vacation" in message_lower or "time off" in message_lower:
-        return "📖 Vacation Policy: Employees receive 15 days of paid vacation per year. Vacation must be requested at least 2 weeks in advance through the HR portal."
-    
-    elif "benefit" in message_lower:
-        return "💼 Benefits: We offer comprehensive health insurance, 401(k) matching up to 5%, dental and vision coverage, and flexible work arrangements."
-    
-    elif "work from home" in message_lower or "wfh" in message_lower or "remote" in message_lower:
-        return "🏠 Remote Work Policy: Employees can work from home up to 3 days per week. Please coordinate with your manager and update your calendar."
-    
-    elif "hello" in message_lower or "hi" in message_lower:
-        return f"Hello {username}! 👋 I'm your Enterprise AI Assistant. I can help you with account balances, company policies, and benefits information."
-    
-    else:
-        return f"I understand you're asking about: '{message}'. This is a simplified deployment version. For full AI-powered responses, the complete system needs ML dependencies. Currently I can help with:\n\n✅ Account balances\n✅ Vacation policies\n✅ Benefits information\n✅ Remote work policies\n\nTry asking: 'What is my balance?' or 'Tell me about vacation policy'"
-
-# Main app logic
-if not st.session_state.authenticated:
-    # Login form
+# --- 3. LOGIN INTERFACE ---
+def login_ui():
     col1, col2, col3 = st.columns([1, 2, 1])
-    
     with col2:
-        st.markdown("### 🔐 Login")
+        st.image("https://cdn-icons-png.flaticon.com/512/2597/2597388.png", width=80)
+        st.title("Enterprise Login")
+        st.markdown("Enter your credentials to access the secure AI Agent.")
         
         with st.form("login_form"):
-            username = st.text_input("Username", placeholder="Enter your username")
-            password = st.text_input("Password", type="password", placeholder="Enter your password")
-            submit = st.form_submit_button("Login")
+            username = st.text_input("Username (Employee ID)")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Sign In")
             
-            if submit:
-                if username and password:
-                    authenticated, role = authenticate(username, password)
-                    if authenticated:
-                        st.session_state.authenticated = True
+            if submitted:
+                try:
+                    res = requests.post(f"{BACKEND_URL}/token", json={"username": username, "password": password})
+                    if res.status_code == 200:
+                        data = res.json()
+                        st.session_state.token = data["access_token"]
+                        st.session_state.role = data.get("role", "user")
                         st.session_state.username = username
-                        st.session_state.role = role
-                        st.success(f"✅ Welcome, {username}!")
+                        st.session_state.authenticated = True
+                        st.success("Login Successful!")
+                        time.sleep(1)
                         st.rerun()
                     else:
-                        st.error("❌ Invalid credentials")
-                else:
-                    st.warning("⚠️ Please enter both username and password")
-        
-        # Demo credentials
-        with st.expander("🎓 Demo Credentials"):
-            st.markdown("""
-            **Customer Accounts:**
-            - Username: `alice` | Password: `alice123`
-            - Username: `bob` | Password: `bob123`
-            
-            **Administrator:**
-            - Username: `admin` | Password: `admin123`
-            """)
+                        st.error("❌ Invalid credentials. Please try again.")
+                except Exception as e:
+                    st.error(f"⚠️ Connection Error: Unable to reach the Brain (API).")
 
-else:
-    # Chat interface
-    st.markdown(f"### Welcome, {st.session_state.username}! 👋")
-    st.markdown(f"**Role:** {st.session_state.role.capitalize()}")
-    
-    # Logout button
-    if st.button("🚪 Logout"):
-        st.session_state.authenticated = False
-        st.session_state.username = None
-        st.session_state.messages = []
-        st.rerun()
-    
-    st.markdown("---")
-    
-    # Display chat messages
+# --- 4. CHAT INTERFACE ---
+def chat_ui():
+    # Sidebar
+    with st.sidebar:
+        st.title("Agent Settings")
+        st.success(f"User: {st.session_state.username}")
+        st.info(f"Role: {st.session_state.role.capitalize()}")
+        
+        if st.button("🧹 Clear Chat"):
+            st.session_state.messages = []
+            st.rerun()
+            
+        if st.button("🚪 Logout"):
+            st.session_state.authenticated = False
+            st.session_state.token = None
+            st.rerun()
+        
+        st.divider()
+        st.markdown("### Knowledge Base")
+        st.caption("Connected to 27 Company Documents (PDF/TXT)")
+
+    st.title("🤖 Enterprise Assistant")
+    st.markdown("Ask me anything about company policy, benefits, or general tasks.")
+
+    # Display History
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-    
-    # Chat input
-    if prompt := st.chat_input("Ask me anything..."):
-        # Add user message
+
+    # Chat Input
+    if prompt := st.chat_input("Message the Agent..."):
+        # Display User Message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-        
-        # Get response
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                response = simple_chat_response(
-                    prompt, 
-                    st.session_state.username, 
-                    st.session_state.role
-                )
-                st.markdown(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
-    
-    # Quick actions
-    st.markdown("### 💡 Quick Actions")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("💰 Check Balance"):
-            msg = "What is my balance?"
-            st.session_state.messages.append({"role": "user", "content": msg})
-            response = simple_chat_response(msg, st.session_state.username, st.session_state.role)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            st.rerun()
-    
-    with col2:
-        if st.button("🏖️ Vacation Policy"):
-            msg = "What is the vacation policy?"
-            st.session_state.messages.append({"role": "user", "content": msg})
-            response = simple_chat_response(msg, st.session_state.username, st.session_state.role)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            st.rerun()
-    
-    with col3:
-        if st.button("💼 Benefits"):
-            msg = "Tell me about benefits"
-            st.session_state.messages.append({"role": "user", "content": msg})
-            response = simple_chat_response(msg, st.session_state.username, st.session_state.role)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            st.rerun()
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: rgba(255,255,255,0.6); padding: 1rem;'>
-    <p>🤖 Enterprise AI Agent - Simplified Deployment Version</p>
-    <p style='font-size: 0.9em;'>This version works without heavy ML dependencies for easy deployment.</p>
-</div>
-""", unsafe_allow_html=True)
+        # Get AI Response from Backend
+        with st.chat_message("assistant"):
+            with st.spinner("Analyzing Knowledge Base..."):
+                headers = {"Authorization": f"Bearer {st.session_state.token}"}
+                payload = {
+                    "message": prompt,
+                    "session_id": st.session_state.session_id
+                }
+                
+                try:
+                    response = requests.post(f"{BACKEND_URL}/chat", json=payload, headers=headers)
+                    if response.status_code == 200:
+                        answer = response.json()["response"]
+                        st.markdown(answer)
+                        st.session_state.messages.append({"role": "assistant", "content": answer})
+                    else:
+                        st.error("AI service returned an error. Check logs.")
+                except Exception as e:
+                    st.error(f"Brain connection lost: {e}")
+
+# --- 5. MAIN LOGIC ---
+if not st.session_state.authenticated:
+    login_ui()
+else:
+    chat_ui()
